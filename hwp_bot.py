@@ -6,7 +6,7 @@ from telebot import types
 
 # 你最新填嘅 ID 5249925931 係 User ID 唔係 Group ID，Group ID 係 -100開頭
 # 暫時用環境變量，如果冇就用你填嘅，之後攞到真ID再改
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8640840037:AAE-E5yL248tLJitlslWBOf-MYLYW0WB4f4")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8640840037:AAFC2DE7z8_JDN1VcsOQD35BN6vxgfjFcX0")
 PRIVATE_GROUP_ID = int(os.getenv("PRIVATE_GROUP_ID", "5249925931"))
 PRIVATE_INVITE_LINK = os.getenv("PRIVATE_INVITE_LINK", "https://t.me/+UA_XO0ZK-YA0M2Y9")
 
