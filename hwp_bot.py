@@ -1,156 +1,169 @@
 import os
-import time
-import threading
-from flask import Flask
+import json
 import telebot
 from telebot import types
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN not set!")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+PRIVATE_GROUP_ID = int(os.environ.get("GROUP_ID", "0"))
 
-PRIVATE_GROUP_ID = int(os.getenv("PRIVATE_GROUP_ID", "-1003647321921"))
-PRIVATE_INVITE_LINK = os.getenv("PRIVATE_INVITE_LINK", "https://t.me/+UA_XO0ZK-YA0M2Y9")
-
-# --- 你的3個聯絡方法 ---
-WHATSAPP_NUMBER = "59475041"
-WHATSAPP_LINK = f"https://wa.me/852{WHATSAPP_NUMBER}?text=你好，想問功課服務"
-TG_SERVICE = "@homework_professor"
-WEBSITE = "https://www.homework-professor.com/"
+# === 已填好你哋Link ===
+WHATSAPP_LINK = "https://wa.me/85259375041"
+TG_GROUP_LINK = "https://t.me/homework_professor"
+IG_LINK = "https://www.instagram.com/hwp.study"
 
 bot = telebot.TeleBot(BOT_TOKEN)
-app = Flask(__name__)
 
-@app.route('/')
-def home():
-    return "HWP Bot Live - Contact Updated"
+PRIVACY_TEXT = """🔒 私隱聲明：本Bot僅用於驗證入群資格及派發教學資源，不會收集、儲存或公開任何同學之姓名、學號、院校資料。所有查詢均以匿名形式處理"""
 
-SUBJECTS = {
-    "nursing": {"name": "🩺 Nursing 護理", "tag": "#NURSING", "desc": "Care Plan / Case Study / Drug Calc / Reflective\n熱門：NURS1003, NURS2007, Patho", },
-    "business": {"name": "📊 Business 商科", "tag": "#BUSINESS", "desc": "Report / SWOT / Finance / Business Plan\n熱門：MGMT, DSME, ECON", },
-    "research": {"name": "📈 Research/SPSS", "tag": "#RESEARCH", "desc": "SPSS / STATA / R / 問卷分析 / p-value\n代跑數據+出圖", },
-    "marketing": {"name": "📣 Marketing", "tag": "#MARKETING", "desc": "4P / Marketing Plan / Consumer Behavior", },
-    "engineering": {"name": "⚙️ Engineering", "tag": "#ENGINEERING", "desc": "Lab Report / MATLAB / CAD", },
-    "english": {"name": "✍️ English/UCLC", "tag": "#ENGLISH", "desc": "UCLC1005/1003 / Essay / APA MLA\n紅筆批改版", },
-    "psyc": {"name": "🧠 PSYC 心理學", "tag": "#PSYC", "desc": "Research Proposal / Experiment Report / Literature Review / APA 7th\n熱門：PSYC1001, Developmental, Cognitive", },
-    "law": {"name": "⚖️ LAW 法律", "tag": "#LAW", "desc": "Case Brief / Legal Memo / IRAC / Essay\n熱門：LLAW1001, Contract, Tort", },
-    "ps": {"name": "📝 Personal Statement", "tag": "#PS", "desc": "Master / PhD / Scholarship / Exchange\n全英撰寫 + 2次修改", },
-    "cv": {"name": "📄 CV / Cover Letter", "tag": "#CV", "desc": "CV / Resume / Cover Letter / LinkedIn\n投行 / Big4 / 實習 ATS優化", },
-    "other": {"name": "📦 其他科目", "tag": "#OTHER", "desc": "SOCI / EDUC / GE / 任何冷門科都接", },
-}
+INVITE_FILE = "invites.json"
 
-MAIN_KEYS = ["nursing","business","research","psyc","law","ps","cv","english"]
+def load_data():
+    if not os.path.exists(INVITE_FILE):
+        return {"users": {}, "referrals": {}}
+    try:
+        with open(INVITE_FILE, 'r') as f:
+            return json.load(f)
+    except:
+        return {"users": {}, "referrals": {}}
 
-def contact_buttons():
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(types.InlineKeyboardButton(f"💚 WhatsApp 客服 (主) {WHATSAPP_NUMBER}", url=WHATSAPP_LINK))
-    markup.add(types.InlineKeyboardButton(f"✈️ TG 客服 {TG_SERVICE}", url=f"https://t.me/{TG_SERVICE.replace('@','')}"))
-    markup.add(types.InlineKeyboardButton(f"🌐 官網 {WEBSITE}", url=WEBSITE))
-    return markup
+def save_data(data):
+    with open(INVITE_FILE, 'w') as f:
+        json.dump(data, f)
 
-def main_menu():
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    for k in MAIN_KEYS:
-        if k in SUBJECTS:
-            markup.add(types.InlineKeyboardButton(SUBJECTS[k]["name"], callback_data=f"subj_{k}"))
-    markup.add(
-        types.InlineKeyboardButton("📚 更多科目 >", callback_data="more_subjects"),
-        types.InlineKeyboardButton("🛠 急單/改格式/減AI", callback_data="subj_urgent")
-    )
-    return markup
-
-def more_menu():
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    for k in ["marketing","engineering","other"]:
-        markup.add(types.InlineKeyboardButton(SUBJECTS[k]["name"], callback_data=f"subj_{k}"))
-    markup.add(types.InlineKeyboardButton("⬅️ 返主目錄", callback_data="back_menu"))
-    return markup
-
-@bot.message_handler(commands=['start'])
-@bot.message_handler(func=lambda m: m.text and m.text.strip().lower() in ['/start', 'start', '/START'])
-def send_welcome(message):
-    if message.chat.type in ['group', 'supergroup']:
-        print(f"GROUP ID: {message.chat.id}", flush=True)
-        bot.reply_to(message, f"ID: {message.chat.id}")
-        return
-    user_id = message.from_user.id
-    text_raw = (message.text or '').strip().lower()
-    print(f"/start triggered from {user_id} text={message.text} chat_type={message.chat.type}", flush=True)
+def is_in_group(user_id):
     try:
         member = bot.get_chat_member(PRIVATE_GROUP_ID, user_id)
-        if member.status in ['member', 'administrator', 'creator']:
-            bot.send_message(message.chat.id, "✅ 已驗證入咗私庫 HWP.STUDY！\n\n你係咩科？揀一個即刻彈範文庫：", reply_markup=main_menu())
+        return member.status in ['member', 'administrator', 'creator']
+    except:
+        return False
+
+@bot.message_handler(commands=['start'])
+def handle_start(message):
+    data = load_data()
+    user_id = message.from_user.id
+    args = message.text.split()
+
+    if len(args) > 1 and args[1].startswith('ref_'):
+        try:
+            referrer_id = int(args[1].replace('ref_', ''))
+            if referrer_id != user_id and str(user_id) not in data["referrals"]:
+                data["referrals"][str(user_id)] = referrer_id
+                save_data(data)
+        except:
+            pass
+
+    welcome = f"""{PRIVACY_TEXT}
+
+👋 歡迎嚟到 HWP 私人資源庫
+
+入咗私人庫先拎得完整版，公海只放框架。
+
+請先加入私人群，再按下面按鈕驗證：
+"""
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("✅ 我已入群，立即驗證", callback_data="verify"))
+    markup.add(types.InlineKeyboardButton("📩 取得邀請獎勵Link", callback_data="invite"))
+    markup.row(types.InlineKeyboardButton("💬 WhatsApp 急問", url=WHATSAPP_LINK),
+               types.InlineKeyboardButton("📲 TG @homework_professor", url=TG_GROUP_LINK))
+
+    bot.send_message(message.chat.id, welcome, reply_markup=markup)
+
+    if str(user_id) in data["referrals"] and is_in_group(user_id):
+        referrer_id = data["referrals"][str(user_id)]
+        if str(referrer_id) not in data["users"]:
+            data["users"][str(referrer_id)] = {"count": 0, "invited_users": []}
+        if user_id not in data["users"][str(referrer_id)]["invited_users"]:
+            data["users"][str(referrer_id)]["count"] += 1
+            data["users"][str(referrer_id)]["invited_users"].append(user_id)
+            save_data(data)
             try:
-                with open('UCLC1005_說明範例3篇.pdf','rb') as f:
-                    bot.send_document(message.chat.id, f, caption="🎁 新人禮：UCLC1005 3篇A+範文\n官網 homework-professor.com | TG @homework_professor | WhatsApp 59475041")
+                count = data["users"][str(referrer_id)]["count"]
+                bot.send_message(referrer_id, f"🎉 有同學經你條Link入咗私庫！目前已邀請 {count} 人\n夠3人即刻解鎖隱藏A+範文！入咗私人庫先拎得完整版")
             except:
                 pass
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    data = load_data()
+    if call.data == "verify":
+        if is_in_group(call.from_user.id):
+            bot.answer_callback_query(call.id, "驗證成功！")
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("💬 WhatsApp 59375041", url=WHATSAPP_LINK))
+            markup.add(types.InlineKeyboardButton("📲 TG @homework_professor", url=TG_GROUP_LINK))
+            markup.add(types.InlineKeyboardButton("📸 IG主帳", url=IG_LINK))
+            msg = f"""✅ 驗證成功！已確認你入咗私人庫
+
+{PRIVACY_TEXT}
+
+入咗私人庫先拎得完整版，揀你要嘅資源：
+/uclc - UCLC1005 說明文框架
+/lch1105 - LCH1105 社評Checklist
+/turnitin - 免費Turnitin流程
+/ask - 匿名提問 (唔會顯示你個名)
+/invite - 攞你專屬邀請Link賺獎勵
+"""
+            bot.send_message(call.message.chat.id, msg, reply_markup=markup)
         else:
-            m = types.InlineKeyboardMarkup()
-            m.add(types.InlineKeyboardButton("🔓 入私人庫解鎖", url=PRIVATE_INVITE_LINK))
-            m.add(types.InlineKeyboardButton("✅ 已入，重新檢查", callback_data="check_again"))
-            bot.send_message(message.chat.id, f"🔒 HWP 10大科目+PS/CV範文庫要入私庫先睇到\n{PRIVATE_INVITE_LINK}", reply_markup=m)
-    except Exception as e:
-        print(e, flush=True)
-        m = types.InlineKeyboardMarkup()
-        m.add(types.InlineKeyboardButton("🔓 入群", url=PRIVATE_INVITE_LINK))
-        m.add(types.InlineKeyboardButton("✅ 已入", callback_data="check_again"))
-        bot.send_message(message.chat.id, f"請先入群：{PRIVATE_INVITE_LINK}", reply_markup=m)
+            bot.answer_callback_query(call.id, "未入群，入咗先再驗證", show_alert=True)
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("📲 加入TG私庫", url=TG_GROUP_LINK))
+            bot.send_message(call.message.chat.id, "❌ 仲未偵測到你入群，請先加入私人群再按驗證。\n入咗私人庫先拎得完整版", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("subj_"))
-def handle_subject(call):
-    key = call.data.replace("subj_","")
-    if key == "urgent":
-        bot.send_message(call.message.chat.id, "🛠 急單/改格式/減AI 15分鐘報價\n\nAPA/MLA/Chicago/減AI\n請用下面3個方法聯絡我地，記得講 Deadline + 字數 + 科目：", reply_markup=contact_buttons())
-        bot.answer_callback_query(call.id)
+    elif call.data == "invite":
+        ref_link = f"https://t.me/{bot.get_me().username}?start=ref_{call.from_user.id}"
+        count = data["users"].get(str(call.from_user.id), {}).get("count", 0)
+        bot.send_message(call.message.chat.id, f"🔗 你嘅專屬邀請Link：\n{ref_link}\n\n已邀請：{count}/3 人\n叫朋友用呢條Link Start隻Bot + 入群，你就會計分。\n入咗私人庫先拎得完整版，夠3人自動派隱藏資源。\n\n{PRIVACY_TEXT}")
+
+@bot.message_handler(commands=['invite'])
+def invite_cmd(message):
+    data = load_data()
+    ref_link = f"https://t.me/{bot.get_me().username}?start=ref_{message.from_user.id}"
+    count = data["users"].get(str(message.from_user.id), {}).get("count", 0)
+    bot.send_message(message.chat.id, f"🔗 你嘅專屬邀請Link：\n{ref_link}\n已邀請：{count}/3\n{PRIVACY_TEXT}")
+
+@bot.message_handler(commands=['ask'])
+def ask_cmd(message):
+    question = message.text.replace('/ask', '').strip()
+    if not question:
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("💬 WhatsApp 59375041", url=WHATSAPP_LINK))
+        markup.add(types.InlineKeyboardButton("📲 TG @homework_professor", url=TG_GROUP_LINK))
+        bot.send_message(message.chat.id, f"用法：\n/ask 你嘅問題\n例如： /ask LCH1105點揀社評先唔會降Grade？\n\n我會匿名轉去私人群，唔會顯示你個名。\n\n{PRIVACY_TEXT}\n\n入咗私人庫先拎得完整版", reply_markup=markup)
         return
-    data = SUBJECTS.get(key)
-    if not data: return
-    m = types.InlineKeyboardMarkup(row_width=1)
-    m.add(types.InlineKeyboardButton(f"📂 睇 {data['tag']} 全部範文", url=f"https://t.me/c/{str(PRIVATE_GROUP_ID).replace('-100','')}/1"))
-    m.add(types.InlineKeyboardButton(f"💚 WhatsApp 報價 (主) {WHATSAPP_NUMBER}", url=WHATSAPP_LINK))
-    m.add(types.InlineKeyboardButton(f"✈️ TG 客服 {TG_SERVICE}", url=f"https://t.me/{TG_SERVICE.replace('@','')}"))
-    m.add(types.InlineKeyboardButton(f"🌐 官網下單", url=WEBSITE))
-    m.add(types.InlineKeyboardButton("🔙 返主目錄", callback_data="back_menu"))
     
-    text = f"{data['name']} 資源庫 {data['tag']}\n\n{data['desc']}\n\n🔍 私人群搜：{data['tag']}\n\n👇 搵客服報價 (講Deadline+字數+科目)"
-    bot.send_message(call.message.chat.id, text, reply_markup=m)
-    bot.answer_callback_query(call.id)
+    anon_text = f"📩 匿名同學提問：\n\n{question}\n\n---\n(此提問由Bot匿名轉發，已隱藏提問者資料)"
+    try:
+        bot.send_message(PRIVATE_GROUP_ID, anon_text)
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            types.InlineKeyboardButton("💬 WhatsApp 59375041", url=WHATSAPP_LINK),
+            types.InlineKeyboardButton("📲 @homework_professor", url=TG_GROUP_LINK),
+            types.InlineKeyboardButton("📸 IG @hwp.study", url=IG_LINK)
+        )
+        bot.send_message(message.chat.id, 
+            f"✅ 已匿名發送去私人群，唔會顯示你個名。\n\n老師會喺Group入面匿名回覆，入咗私人庫先拎得完整版。\n急嘅可以直接搵我哋：\n\n{PRIVACY_TEXT}", 
+            reply_markup=markup)
+    except Exception as e:
+        bot.send_message(message.chat.id, f"發送失敗：{e}")
 
-@bot.callback_query_handler(func=lambda c: c.data in ["check_again","back_menu","more_subjects"])
-def handle_nav(call):
-    if call.data == "check_again":
-        send_welcome(call.message)
-    elif call.data == "more_subjects":
-        bot.edit_message_text("📚 更多科目：", call.message.chat.id, call.message.message_id, reply_markup=more_menu())
-    else:
-        bot.edit_message_text("你係咩科？揀一個：", call.message.chat.id, call.message.message_id, reply_markup=main_menu())
-    bot.answer_callback_query(call.id)
-
-@bot.message_handler(func=lambda m: m.text and m.text.strip().lower() not in ['/start','start','/START'] , content_types=['text'])
-def log_all_text(message):
-    # avoid catching start
-    if message.chat.type in ['group','supergroup']:
-        print(f"GROUP ID: {message.chat.id}", flush=True)
+@bot.message_handler(commands=['uclc', 'lch1105', 'turnitin'])
+def resource_cmd(message):
+    if not is_in_group(message.from_user.id):
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("📲 加入TG私庫", url=TG_GROUP_LINK))
+        bot.send_message(message.chat.id, f"🔒 呢個資源只限私庫成員\n請先入群再驗證，入咗私人庫先拎得完整版\n打 /start 開始\n\n{PRIVACY_TEXT}", reply_markup=markup)
         return
-    # 任何其他文字都當作 /start 處理，方便學生
-    send_welcome(message)
 
-@bot.message_handler(content_types=['new_chat_members','photo','sticker'])
-def log_all(message):
-    if message.chat.type in ['group','supergroup']:
-        print(f"GROUP ID: {message.chat.id}", flush=True)
+    cmd = message.text.split()[0]
+    base = f"{PRIVACY_TEXT}\n\n📌 所有範文僅作教育用途及寫作結構參考，請勿直接抄襲提交\n\n"
+    tail = "\n\n入咗私人庫先拎得完整版，公海只放框架，完整版只喺私人庫派。"
 
-def run_bot():
-    print("HWP Bot - 3聯絡方法版啟動...", flush=True)
-    time.sleep(3)
-    while True:
-        try:
-            bot.infinity_polling(timeout=10, long_polling_timeout=5)
-        except Exception as e:
-            print(f"Retry: {e}", flush=True)
-            time.sleep(5)
+    if 'uclc' in cmd:
+        bot.send_message(message.chat.id, base + "🔒 UCLC1005 說明文 3篇A+ 範文 (紅筆批改版) 已上載\n框架版喺呢度，完整版已放私庫雲端。" + tail)
+    elif 'lch1105' in cmd:
+        bot.send_message(message.chat.id, base + "🔒 LCH1105 社評評論高分Checklist + 標題公式已上載" + tail)
+    else:
+        bot.send_message(message.chat.id, base + "📝 免費教師版Turnitin Check流程：請將Word檔Send嚟呢個Bot，24小時內回覆" + tail)
 
-if __name__ == "__main__":
-    threading.Thread(target=run_bot, daemon=True).start()
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+bot.infinity_polling()
